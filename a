@@ -1,0 +1,24 @@
+bash evaluate_all_saved_models.sh --device cuda --include-user-activity-settings --user-activity-split-type pareto --user-activity-pareto-target 0.8 && python parse_eval_results.py output/eval --output_csv b.csv
+
+
+bash evaluate_all_saved_models.sh --device cuda --settings warm cold --user-activity-split-type pareto --user-activity-pareto-target 0.8 && python parse_eval_results.py output/eval --output_csv b.csv
+
+
+bash evaluate_all_saved_models.sh --device cuda --settings warm cold --user-activity-split-type pareto --user-activity-pareto-target 0.8 && python parse_eval_results.py output/eval --output_csv b.csv
+
+
+./evaluate_all_saved_models.sh \
+  --python /home/mbgwak/anaconda3/envs/MBRec/bin/python \
+  --device cuda \
+  --output-dir output/eval_item_popularity \
+  --datasets tmall taobao jdata \
+  --settings item_warm item_cold
+
+
+/home/mbgwak/anaconda3/envs/MBRec/bin/python parse_item_popularity_eval_results.py \
+  output/eval_item_popularity/tmall_enb_16_2026-03-27_02_48_53_test.json \
+  output/eval_item_popularity/taobao_enb_16_2026-03-27_02_08_39_test.json \
+  output/eval_item_popularity/jdata_enb_16_2026-03-27_02_01_45_test.json \
+  --output_csv output/eval_item_popularity/item_popularity_eval_summary.csv
+
+./evaluate_behavior_item_popularity.sh --device cuda

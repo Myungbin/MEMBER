@@ -1,0 +1,12 @@
+*.csv
+*.pth
+*.log
+*.png
+*.pyc
+__pycache__/
+data/
+.vscode/
+*.sh
+*.pt
+*.xlsx
+*.json
