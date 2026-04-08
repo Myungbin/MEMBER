@@ -32,16 +32,21 @@ class Trainer(object):
 
         self.batch_size = args.batch_size
         self.test_batch_size = args.test_batch_size
-        self.min_epoch = args.min_epoch
+        self.min_epoch = int(args.min_epoch)
         self.epochs = args.epochs
         self.model_path = args.model_path
         self.model_name = args.model_name
         self.embedding_size = args.embedding_size
+        self.early_stop_patience = int(getattr(args, 'early_stop_patience', 20))
+        self.early_stop_metric = 'ndcg@10'
         
         self.device = args.device
         self.TIME = args.TIME
         self.setting = args.setting
         self.mask_validation = bool(getattr(args, 'mask_validation', False))
+
+        if 10 not in self.topk:
+            self.topk = sorted(set(self.topk + [10]))
 
         self._eval_exclusion_cache = {}
 
@@ -209,7 +214,12 @@ class Trainer(object):
                                           batch_size=self.batch_size,
                                           shuffle=True)
         
-        test_metric_dict = None
+        best_validation_score = float('-inf')
+        best_validation_metric_dict = None
+        best_state_dict = None
+        stopped_early = False
+        patience_counter = 0
+        best_epoch = -1
         
         for epoch in range(self.epochs):
 
@@ -225,16 +235,58 @@ class Trainer(object):
             
             self._train_fine_epoch(train_dataset_loader, epoch, self.model_visited, self.model_unvisited, self.optimizer_visited, self.optimizer_unvisited)
 
-            test_metric_dict = self.evaluate_combine(epoch)
+            validation_metric_dict = self.evaluate_split(epoch, split_name='validation')
+            validation_score = validation_metric_dict.get(self.early_stop_metric)
+            if validation_score is None:
+                raise ValueError(
+                    f'{self.early_stop_metric} is required for early stopping, '
+                    f'but validation metrics only contain {list(validation_metric_dict.keys())}.'
+                )
 
-        # Save final checkpoints for both experts and optimizers.
-        self.save_model(self.model_visited, 'visited_model')
-        self.save_model(self.model_unvisited, 'unvisited_model')
-        self.save_model(self.optimizer_visited, 'visited_optimizer')
-        self.save_model(self.optimizer_unvisited, 'unvisited_optimizer')
+            if validation_score > best_validation_score:
+                best_validation_score = validation_score
+                best_validation_metric_dict = validation_metric_dict
+                best_state_dict = self._snapshot_training_state()
+                best_epoch = epoch
+                patience_counter = 0
+                self._save_best_checkpoints()
+                logger.info(
+                    f'epoch {epoch + 1} validation {self.early_stop_metric} improved to {validation_score:.4f}'
+                )
+            else:
+                patience_counter += 1
+                logger.info(
+                    f'epoch {epoch + 1} validation {self.early_stop_metric} did not improve '
+                    f'(best: {best_validation_score:.4f}, patience: {patience_counter}/{self.early_stop_patience})'
+                )
 
-        if test_metric_dict is not None:
-            logger.info(f"final test result is:  %s" % test_metric_dict.__str__())
+            self.evaluate_combine(epoch)
+
+            if (epoch + 1) >= self.min_epoch and patience_counter >= self.early_stop_patience:
+                stopped_early = True
+                logger.info(
+                    f'Early stopping triggered at epoch {epoch + 1} with best validation '
+                    f'{self.early_stop_metric} {best_validation_score:.4f} from epoch {best_epoch + 1}'
+                )
+                break
+
+        if best_state_dict is not None:
+            self._restore_training_state(best_state_dict)
+            self._save_best_checkpoints()
+
+        final_test_metric_dict = self.evaluate_split(
+            best_epoch if best_epoch >= 0 else 0,
+            split_name='test',
+        )
+
+        if best_validation_metric_dict is not None:
+            logger.info(f'best validation result at epoch {best_epoch + 1} is: {best_validation_metric_dict}')
+        logger.info(f"final test result is:  %s" % final_test_metric_dict.__str__())
+
+        if stopped_early:
+            logger.info('Training finished with early stopping.')
+        else:
+            logger.info('Training finished after reaching the maximum epoch.')
     
     def apply_masks(self, scores_visited, scores_unvisited, user_indices, item_indices):
 
@@ -363,23 +415,47 @@ class Trainer(object):
         self.clear_parameter(self.model_unvisited)
 
         
-    def evaluate_combine(self, epoch):
+    def _snapshot_training_state(self):
+        return {
+            'model_visited': copy.deepcopy(self.model_visited.state_dict()),
+            'model_unvisited': copy.deepcopy(self.model_unvisited.state_dict()),
+            'optimizer_visited': copy.deepcopy(self.optimizer_visited.state_dict()),
+            'optimizer_unvisited': copy.deepcopy(self.optimizer_unvisited.state_dict()),
+        }
+
+    def _restore_training_state(self, state_dict):
+        self.model_visited.load_state_dict(state_dict['model_visited'])
+        self.model_unvisited.load_state_dict(state_dict['model_unvisited'])
+        self.optimizer_visited.load_state_dict(state_dict['optimizer_visited'])
+        self.optimizer_unvisited.load_state_dict(state_dict['optimizer_unvisited'])
+
+    def _save_best_checkpoints(self):
+        self.save_model(self.model_visited, 'visited_model')
+        self.save_model(self.model_unvisited, 'unvisited_model')
+        self.save_model(self.optimizer_visited, 'visited_optimizer')
+        self.save_model(self.optimizer_unvisited, 'unvisited_optimizer')
+
+    def evaluate_split(self, epoch, split_name='test', setting=None):
+        target_setting = self.setting if setting is None else setting
         start_time = time.time()
-        eval_dataset, eval_interacts, eval_gt_length = self.dataset.get_eval_bundle('test', self.setting)
-        test_metric_dict = self.evaluate(
+        eval_dataset, eval_interacts, eval_gt_length = self.dataset.get_eval_bundle(split_name, target_setting)
+        metric_dict = self.evaluate(
             epoch,
             self.test_batch_size,
             eval_dataset,
             eval_interacts,
             eval_gt_length,
-            setting=self.setting,
-            split_name='test',
+            setting=target_setting,
+            split_name=split_name,
         )
         epoch_time = time.time() - start_time
         logger.info(
-            f"test ({self.setting}) %d cost time %.2fs, result: %s " % (epoch + 1, epoch_time, test_metric_dict.__str__()))
+            f"{split_name} ({target_setting}) %d cost time %.2fs, result: %s " % (epoch + 1, epoch_time, metric_dict.__str__()))
 
-        return test_metric_dict
+        return metric_dict
+
+    def evaluate_combine(self, epoch):
+        return self.evaluate_split(epoch, split_name='test', setting=self.setting)
     
     @logger.catch()
     @torch.no_grad()

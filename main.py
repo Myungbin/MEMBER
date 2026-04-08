@@ -49,8 +49,9 @@ if __name__ == '__main__':
     
     parser.add_argument('--batch_size', type=int, default=1024, help='')
     parser.add_argument('--test_batch_size', type=int, default=1024, help='')
-    parser.add_argument('--min_epoch', type=str, default=5, help='')
+    parser.add_argument('--min_epoch', type=int, default=5, help='')
     parser.add_argument('--epochs', type=int, default=100, help='')
+    parser.add_argument('--early_stop_patience', type=int, default=20, help='')
     parser.add_argument('--model_path', type=str, default='./check_point', help='')
     parser.add_argument('--check_point', type=str, default='', help='')
     parser.add_argument('--model_name', type=str, default='tmall', help='')
