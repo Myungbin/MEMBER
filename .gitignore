@@ -10,3 +10,5 @@ data/
 *.pt
 *.xlsx
 *.json
+*.pth
+*.txt

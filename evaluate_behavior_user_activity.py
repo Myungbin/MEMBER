@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from dataloader import DataSet, TestDate
+from dataset_config import build_experiment_name
 from evaluate_saved_model import (
     DEFAULT_CONFIG,
     DATASET_META,
@@ -26,6 +27,8 @@ def parse_args():
     )
     parser.add_argument("--log_file", type=str, default=None, help="Training log file containing Namespace(...).")
     parser.add_argument("--data_name", type=str, default=None, help="tmall, taobao, or jdata.")
+    parser.add_argument("--data_variant", type=str, default=None, help="Optional dataset variant name under ./data_variants/{data_name}/.")
+    parser.add_argument("--data_path", type=str, default=None, help="Optional explicit dataset path.")
     parser.add_argument("--device", type=str, default="cpu", help="Evaluation device.")
     parser.add_argument("--split", type=str, default="test", choices=["test", "validation"])
     parser.add_argument(
@@ -70,6 +73,15 @@ def build_eval_args(cli_args):
 
     if cli_args.data_name:
         config["data_name"] = cli_args.data_name
+    if cli_args.data_variant and cli_args.data_path:
+        raise ValueError("--data_variant and --data_path cannot be used together.")
+    if cli_args.data_variant is not None:
+        config["data_variant"] = cli_args.data_variant
+        if not cli_args.data_path:
+            config.pop("data_path", None)
+    if cli_args.data_path is not None:
+        config["data_path"] = cli_args.data_path
+        config["data_variant"] = None
 
     if "data_name" not in config:
         raise ValueError("data_name is required. Pass --data_name or --log_file.")
@@ -80,6 +92,12 @@ def build_eval_args(cli_args):
 
     config["data_name"] = data_name
     config = resolve_dataset_config(config)
+    if not config.get("model_name"):
+        config["model_name"] = build_experiment_name(
+            config["data_name"],
+            config.get("data_variant"),
+            config.get("data_path"),
+        )
 
     if cli_args.device:
         config["device"] = cli_args.device
@@ -346,6 +364,8 @@ def main():
         "split": cli_args.split,
         "mask_validation": args.mask_validation,
         "data_name": args.data_name,
+        "data_variant": getattr(args, "data_variant", None),
+        "data_path": args.data_path,
         "target_behavior": args.behaviors[-1],
         "auxiliary_behaviors": args.behaviors[:-1],
         "split_definition": (

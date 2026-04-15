@@ -44,16 +44,45 @@ cd METHOD
 ```
 * **Tmall**
 ```bash
-python main.py --data_name tmall --con_s 0.1 --temp_s 0.6  --con_us 0.1 --temp_us 0.7 --gen 0.1 --lambda_s 0.6 --alpha 2 --device cuda:1 
+python main.py --data_name tmall --con_s 0.1 --temp_s 0.6  --con_us 0.1 --temp_us 0.7 --gen 0.1 --lambda_s 0.6 --alpha 2 --device cuda:1 --mask_validation
 ```
 * **Taobao**
 ```bash
-python main.py --data_name taobao --con_s 0.1 --temp_s 0.8 --con_us 0.1 --temp_us 0.7 --gen 0.1 --lambda_us 0.6 --device cuda:2 
+python main.py --data_name taobao --con_s 0.1 --temp_s 0.8 --con_us 0.1 --temp_us 0.7 --gen 0.1 --lambda_us 0.6 --device cuda:2 --mask_validation
 ```
 * **Jdata**
 ```bash
-python main.py --data_name jdata --con_s 0.1 --temp_s 0.6 --con_us 0.01 --temp_us 1.0 --gen 0.01 --lambda_s 0.4 --lambda_us 0.4 --alpha 2 --device cuda:3
+python main.py --data_name jdata --con_s 0.1 --temp_s 0.6 --con_us 0.01 --temp_us 1.0 --gen 0.01 --lambda_s 0.4 --lambda_us 0.4 --alpha 2 --device cuda:3 --mask_validation
 ```
+
+### Training With Data Variants
+If you want to train on a subset variant stored under `data_variants/{data_name}/{variant_name}`, pass `--data_variant`.
+
+```bash
+python main.py --data_name tmall --data_variant keep_cart_buy --device cuda:0 --mask_validation
+```
+
+`metadata.json` inside the variant directory is used to resolve the active behavior list automatically, so variants such as `keep_buy`, `keep_cart_buy`, and `keep_view_collect_cart_buy` can be trained without editing the code.
+
+When `--model_name` is omitted, logs and checkpoints are named automatically with a variant-aware experiment name such as `tmall_keep_cart_buy`, so each run is easy to distinguish.
+
+If you want to point to a custom preprocessed dataset directory directly, use `--data_path` instead of `--data_variant`.
+
+To run every available variant for a dataset sequentially:
+
+```bash
+python run_all_variants.py --datasets tmall -- --device cuda:0 --mask_validation
+```
+
+Use `--dry_run` first if you want to inspect the generated commands without executing them.
+
+To generate commands with the same per-dataset hyperparameters used in this README:
+
+```bash
+python run_all_variants.py --preset readme --dry_run
+```
+
+An explicit command list for every current variant is also available in [README_VARIANT_COMMANDS.md](/home/mbgwak/workspace/MEMBER/README_VARIANT_COMMANDS.md).
 
 ## 📚 Citation
 If you find MEMBER useful, please cite our paper:

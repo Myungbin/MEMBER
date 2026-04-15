@@ -6,24 +6,9 @@ from pathlib import Path
 import torch
 
 from dataloader import DataSet
+from dataset_config import DATASET_META, build_experiment_name, resolve_dataset_config
 from model import MEMBER
 from trainer import Trainer
-
-
-DATASET_META = {
-    "tmall": {
-        "data_path": "./data/Tmall",
-        "behaviors": ["click", "collect", "cart", "buy"],
-    },
-    "jdata": {
-        "data_path": "./data/jdata",
-        "behaviors": ["view", "collect", "cart", "buy"],
-    },
-    "taobao": {
-        "data_path": "./data/taobao",
-        "behaviors": ["view", "cart", "buy"],
-    },
-}
 
 
 DEFAULT_CONFIG = {
@@ -38,6 +23,7 @@ DEFAULT_CONFIG = {
     "dropout": 0.2,
     "lambda_s": 0.5,
     "lambda_us": 0.5,
+    "data_variant": None,
     "neg_count": 1,
     "neg_edge": 3,
     "if_load_model": False,
@@ -52,7 +38,7 @@ DEFAULT_CONFIG = {
     "epochs": 100,
     "model_path": "./check_point",
     "check_point": "",
-    "model_name": "tmall",
+    "model_name": None,
     "device": "cpu",
     "setting": "basic",
     "user_activity_split_type": "top_ratio",
@@ -86,23 +72,6 @@ def parse_namespace_from_log(log_file):
             return parsed
 
     raise ValueError(f"Could not find Namespace(...) in log file: {log_file}")
-
-
-def normalize_data_name(data_name):
-    normalized = data_name.lower()
-    if normalized not in DATASET_META:
-        raise ValueError(f"Unsupported data_name: {data_name}")
-    return normalized
-
-
-def resolve_dataset_config(config):
-    data_name = normalize_data_name(config["data_name"])
-    config["data_name"] = data_name
-    config["data_path"] = DATASET_META[data_name]["data_path"]
-    config["behaviors"] = DATASET_META[data_name]["behaviors"]
-    return config
-
-
 def resolve_checkpoint(explicit_path, checkpoint_dir, args_config, tag):
     if explicit_path:
         checkpoint_path = Path(explicit_path)
@@ -184,11 +153,26 @@ def build_args(cli_args):
 
     if cli_args.data_name:
         config["data_name"] = cli_args.data_name
+    if cli_args.data_variant and cli_args.data_path:
+        raise ValueError("--data_variant and --data_path cannot be used together.")
+    if cli_args.data_variant is not None:
+        config["data_variant"] = cli_args.data_variant
+        if not cli_args.data_path:
+            config.pop("data_path", None)
+    if cli_args.data_path is not None:
+        config["data_path"] = cli_args.data_path
+        config["data_variant"] = None
 
     if "data_name" not in config:
         raise ValueError("data_name is required. Pass --data_name or --log_file.")
 
     config = resolve_dataset_config(config)
+    if not config.get("model_name"):
+        config["model_name"] = build_experiment_name(
+            config["data_name"],
+            config.get("data_variant"),
+            config.get("data_path"),
+        )
 
     if cli_args.device:
         config["device"] = cli_args.device
@@ -244,6 +228,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--log_file", type=str, default=None, help="Training log file containing Namespace(...).")
     parser.add_argument("--data_name", type=str, default=None, help="tmall, taobao, or jdata.")
+    parser.add_argument("--data_variant", type=str, default=None, help="Optional dataset variant name under ./data_variants/{data_name}/.")
+    parser.add_argument("--data_path", type=str, default=None, help="Optional explicit dataset path.")
     parser.add_argument("--device", type=str, default="cpu", help="Evaluation device.")
     parser.add_argument("--split", type=str, default="test", choices=["test", "validation"])
     parser.add_argument(
@@ -363,6 +349,9 @@ def main():
         "split": cli_args.split,
         "mask_validation": args.mask_validation,
         "data_name": args.data_name,
+        "data_variant": getattr(args, "data_variant", None),
+        "data_path": args.data_path,
+        "behaviors": args.behaviors,
         "visited_checkpoint": str(visited_checkpoint),
         "unvisited_checkpoint": str(unvisited_checkpoint),
         "user_activity_summary": dataset.get_user_activity_summary(cli_args.split),

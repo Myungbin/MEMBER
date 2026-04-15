@@ -22,3 +22,9 @@ bash evaluate_all_saved_models.sh --device cuda --settings warm cold --user-acti
   --output_csv output/eval_item_popularity/item_popularity_eval_summary.csv
 
 ./evaluate_behavior_item_popularity.sh --device cuda
+
+
+python main.py --data_name tmall --data_variant keep_cart_buy --device cuda:0 --mask_validation
+
+
+python main.py --data_name tmall --con_s 0.1 --temp_s 0.6  --con_us 0.1 --temp_us 0.7 --gen 0.1 --lambda_s 0.6 --alpha 2 --device cuda:1 --mask_validation

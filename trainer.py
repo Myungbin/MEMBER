@@ -9,6 +9,7 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 import pickle
+import scipy.sparse as sp
 
 import torch.nn.functional as F
 from dataloader import DataSet
@@ -56,7 +57,13 @@ class Trainer(object):
         self._initialize_masks()
         
     def _initialize_masks(self):
-        aux_interactions = sum(self.dataset.inter_matrix[:-1])
+        if self.dataset.inter_matrix[:-1]:
+            aux_interactions = sum(self.dataset.inter_matrix[:-1])
+        else:
+            aux_interactions = sp.coo_matrix(
+                (self.dataset.user_count + 1, self.dataset.item_count + 1),
+                dtype=np.float32,
+            )
         
         aux_interactions_dense = torch.tensor(aux_interactions.toarray(), device=self.device, dtype=torch.bool)
 
@@ -363,6 +370,7 @@ class Trainer(object):
             optimizer_unvisited.zero_grad()
             
             bpr_loss = 0
+            bpr_scores = None
             
             if pair_samples.shape[0] > 0:
                 user_samples = pair_samples[:, 0].long()
@@ -390,6 +398,9 @@ class Trainer(object):
                 bpr_scores_unvisited = self.apply_masks(torch.zeros_like(bpr_scores_unvisited_raw), bpr_scores_unvisited_raw, user_samples, item_samples) 
                 
                 bpr_scores = bpr_scores_visited + bpr_scores_unvisited
+
+            if bpr_scores is None:
+                continue
 
             p_scores, n_scores = torch.chunk(bpr_scores, 2, dim=-1)
             bpr_loss = self.bpr_loss(p_scores, self.alpha*n_scores)
